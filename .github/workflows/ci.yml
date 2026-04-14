@@ -43,4 +43,4 @@ jobs:
           buildtargets: esp32s3
           ldproxy: false
       - uses: Swatinem/rust-cache@v2
-      - run: cargo xtask ci esp32s3
+      - run: cargo xtask ci esp32s3 --steps check,lint,examples
