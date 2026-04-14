@@ -7,9 +7,12 @@ target = "xtensa-esp32s3-none-elf"
 [target.'cfg(target_arch = "xtensa")']
 runner = "espflash flash --monitor"
 rustflags = [
-  "-C", "link-arg=-nostartfiles",
-  "-C", "link-arg=-Tdefmt.x",
-  "-C", "target-feature=+esp32s3",
+    "-C",
+    "link-arg=-nostartfiles",
+    "-C",
+    "link-arg=-Tdefmt.x",
+    "-C",
+    "target-feature=+esp32s3",
 ]
 
 [env]

@@ -323,6 +323,8 @@ dependencies = [
 [[package]]
 name = "esp-metadata"
 version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba70a3a35f004aca7fd0783fbd55a41ca24dfd4be722639fc6038d32c55662a6"
 dependencies = [
  "anyhow",
  "basic-toml",
@@ -332,8 +334,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "somni-expr",
- "somni-parser",
  "strum",
 ]
 
