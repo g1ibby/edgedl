@@ -1,0 +1,8 @@
+[checkOnSave]
+enable = false
+
+[cargo]
+buildScripts.enable = false  # Stop trying to run build scripts
+
+[diagnostics]
+disabled = ["unresolved-proc-macro", "unresolved-import"]

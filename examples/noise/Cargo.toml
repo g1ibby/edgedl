@@ -1,0 +1,57 @@
+[package]
+name    = "example-noise"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+defmt                  = "1.0.1"
+defmt-rtt              = { version = "1.0.0", optional = true }
+esp-hal                = { version = "1.0.0" }
+esp-println            = { version = "0.16.0", features = ["log-04", "esp32s3"] }
+esp-bootloader-esp-idf = { version = "0.4.0" }
+esp-backtrace          = { version = "0.18.0", features = ["esp32s3", "panic-handler", "println"] }
+edgedl                 = { path = "../..", default-features = false }
+edgedl-macros          = { path = "../../macros" }
+libm                   = "0.2"
+static_cell            = "2.1.0"
+
+[features]
+default = []
+
+# Chip-specific features (required for xtask compatibility)
+esp32s3 = [
+    "esp-println/esp32s3",
+    "esp-backtrace/esp32s3",
+    "esp-hal/esp32s3",
+    "esp-bootloader-esp-idf/esp32s3",
+    "esp-hal/unstable",
+    "edgedl/simd-s3",
+]
+
+defmt        = ["dep:defmt-rtt", "esp-hal/defmt"]
+trace        = ["edgedl/trace"]
+arena-report = []
+
+[patch.crates-io]
+esp-hal                = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-backtrace          = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-println            = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-alloc              = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-rtos               = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-bootloader-esp-idf = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-radio              = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-storage            = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-sync               = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-metadata-generated = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+esp-radio-rtos-driver  = { git = "https://github.com/esp-rs/esp-hal", rev = "70930f20d9f681a30ff20aced39d0bd5363126d5" }
+
+[profile.release]
+codegen-units    = 1
+debug            = false
+debug-assertions = false
+incremental      = false
+opt-level        = 3
+lto              = false   # LTO breaks TIE728 SIMD assembly
+overflow-checks  = false
+panic            = "abort"

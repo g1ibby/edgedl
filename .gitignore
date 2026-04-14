@@ -1,0 +1,23 @@
+# Rust build artifacts
+/target/
+examples/noise/target/
+hil-test/target/
+
+# IDE and editor configuration
+.helix/
+.vscode/
+.idea/
+
+# Local configuration
+.claude/settings.local.json
+
+# macOS
+.DS_Store
+
+# Editor temporary files
+*.swp
+*.swo
+*~
+
+# Generated files
+edgedl-expansion.rs

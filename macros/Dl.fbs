@@ -1,0 +1,255 @@
+// ESP-DL FlatBuffers schema (Dl namespace)
+//
+// Notes:
+// - This schema describes the model payload only. The outer file containers
+//   EDL1/EDL2 (single model) and PDL1/PDL2 (multiple models) with optional
+//   AES-CTR encryption are NOT part of this schema; they are simple binary
+//   wrappers used by the loader.
+// - raw_data stores parameters as 16-byte aligned chunks (AlignedBytes).
+//   This enables zero-copy on ESP targets when addresses are 16-byte aligned.
+// - exponents encode power-of-two quantization: scale = 2^exponent. For
+//   tensors of weights they may be per-channel; for activations they are
+//   typically per-tensor.
+// - Activation representation:
+//   - As standalone ops: Node.op_type may be "Relu", "LeakyRelu", "PRelu", etc.
+//   - As fused op attribute: producing ops (e.g., Conv) may include
+//     Attribute(name="activation", attr_type=INT) whose integer maps to
+//     dl::activation_type_t (see ESP-DL runtime). Most non-ReLU/PReLU activations
+//     are implemented with an 8-bit LUT; in those cases an additional
+//     Attribute(name="lut", attr_type=TENSOR) may carry the lookup table.
+namespace Dl;
+
+// Enums
+// Attribute value kind for Attribute.attr_type
+enum AttributeType:int32 {
+  UNDEFINED = 0,
+  FLOAT = 1,
+  INT = 2,
+  STRING = 3,
+  TENSOR = 4,
+  GRAPH = 5,
+  FLOATS = 6,
+  INTS = 7,
+  STRINGS = 8,
+  TENSORS = 9,
+  GRAPHS = 10,
+  TYPE_FBS = 11,
+  TYPE_FBSS = 12
+}
+
+// Element/data type identifiers for tensors and type info
+enum TensorDataType:int32 {
+  UNDEFINED = 0,
+  FLOAT = 1,
+  UINT8 = 2,
+  INT8 = 3,
+  UINT16 = 4,
+  INT16 = 5,
+  INT32 = 6,
+  INT64 = 7,
+  STRING = 8,
+  BOOL = 9,
+  FLOAT16 = 10,
+  DOUBLE = 11,
+  UINT32 = 12,
+  UINT64 = 13
+}
+
+// Location of tensor data (inline or external)
+enum DataLocation:int32 {
+  DEFAULT = 0,
+  EXTERNAL = 1
+}
+
+// How a dimension is specified: numeric value or symbolic param
+enum DimensionValueType:byte {
+  UNKNOWN = 0,
+  VALUE = 1,
+  PARAM = 2
+}
+
+// IR version enum (optional)
+enum Version:int32 {
+  _START_VERSION = 0,
+  IR_VERSION_2023_12_22 = 1
+}
+
+// Structs
+// Scalar float attribute (struct for efficient inline storage)
+struct AttributeF {
+  f:float;
+}
+
+// Scalar int64 attribute (struct for efficient inline storage)
+struct AttributeI {
+  i:long;
+}
+
+// 16-byte aligned chunk used for raw tensor data storage
+struct AlignedBytes (force_align: 16) {
+  bytes:[ubyte:16];
+}
+
+// Simple key/value pair used for metadata and external data entries
+table StringStringEntry {
+  key:string;
+  value:string;
+}
+
+// Operator set identifier used in Model.opset_import and Function.opset_import
+table OperatorSetId {
+  domain:string;
+  version:long;
+}
+
+// Function container (optional, mirrors ONNX-style functions)
+// Typically unused at runtime; present for parity with converters.
+table Function {
+  name:string;                   // function name
+  input:[string];                // function inputs (names)
+  output:[string];               // function outputs (names)
+  attribute:[string];            // attribute names
+  attribute_proto:[Attribute];   // attribute payloads
+  node:[Node];                   // nodes comprising the function body
+  doc_string:string;             // documentation
+  opset_import:[OperatorSetId];  // required opsets
+  domain:string;                 // function domain
+}
+
+// Attribute (covers scalars, vectors, tensors, graphs, and type protos)
+table Attribute {
+  name:string;                 // attribute name
+  ref_attr_name:string;        // optional reference name
+  doc_string:string;           // documentation
+  attr_type:AttributeType;     // kind of value set below
+  f:AttributeF;                // float scalar
+  i:AttributeI;                // int64 scalar
+  s:[ubyte];                   // raw bytes of a string
+  t:Tensor;                    // single tensor value
+  g:Graph;                     // single graph value
+  tp:TypeInfo;                 // single type info value
+  floats:[float];              // repeated floats
+  ints:[long];                 // repeated int64
+  strings:[string];            // repeated strings
+  tensors:[Tensor];            // repeated tensors
+  graphs:[Graph];              // repeated graphs
+  type_protos:[TypeInfo];      // repeated type infos
+  // Conventions (ESP-DL):
+  // - activation: Attribute with name "activation" and INT payload maps to dl::activation_type_t
+  // - lut:        Attribute with name "lut" and TENSOR payload holds an 8-bit activation LUT (if used)
+}
+
+// Computational node
+table Node {
+  input:[string];               // input value names
+  output:[string];              // output value names
+  name:string;                  // node instance name
+  op_type:string;               // operator type, e.g. "Conv"
+  domain:string;                // operator domain
+  attribute:[Attribute];        // operator attributes
+  doc_string:string;            // documentation
+}
+
+// Tensor with data and quantization metadata
+table Tensor {
+  dims:[long];                       // shape
+  data_type:TensorDataType;          // element type
+  float_data:[float];                // typed inline data (mutually exclusive with raw_data)
+  int32_data:[int];                  // typed inline data (mutually exclusive with raw_data)
+  string_data:[string];              // typed inline data (mutually exclusive with raw_data)
+  int64_data:[long];                 // typed inline data (mutually exclusive with raw_data)
+  name:string;                       // tensor name
+  doc_string:string;                 // documentation
+  raw_data:[AlignedBytes];           // 16-byte chunks for raw payload (mutually exclusive with typed arrays)
+  external_data:[StringStringEntry]; // external data entries if data is not inline
+  data_location:DataLocation;        // where the data resides
+  double_data:[double];              // typed inline data (mutually exclusive with raw_data)
+  uint64_data:[ulong];               // typed inline data (mutually exclusive with raw_data)
+  exponents:[long];                  // power-of-two quantization exponents (per-tensor or per-channel)
+}
+
+// Quantization annotations mapping tensor -> parameter names
+table TensorAnnotation {
+  tensor_name:string;                  // tensor being annotated
+  quant_parameter_tensor_names:[StringStringEntry]; // list of name/value pairs
+}
+
+// Graph with nodes, IO, initializers, and optional test fixtures
+table Graph {
+  node:[Node];                        // nodes in topological order
+  name:string;                        // graph name
+  initializer:[Tensor];               // parameter tensors (weights, biases, LUTs)
+  doc_string:string;                  // documentation
+  input:[ValueInfo];                  // graph inputs
+  output:[ValueInfo];                 // graph outputs
+  value_info:[ValueInfo];             // intermediate value infos
+  quantization_annotation:[TensorAnnotation]; // optional annotations
+  test_inputs_value:[Tensor];         // optional embedded test inputs
+  test_outputs_value:[Tensor];        // optional embedded test outputs
+}
+
+// Type system
+union TypeInfoValue { tensor_type:TensorTypeAndShape, sequence_type:SequenceType, map_type:MapType, optional_type:OptionalType }
+
+table TypeInfo {
+  value:TypeInfoValue;              // union payload (discriminator auto-generated as value_type)
+  denotation:string;                // optional semantic hint
+}
+
+table TensorTypeAndShape {
+  elem_type:TensorDataType;         // element type
+  shape:TensorShape;                 // optional shape
+}
+
+table TensorShape {
+  dim:[Dimension];                  // dimensions in order
+}
+
+table Dimension {
+  value:DimensionValue;             // numeric value or symbol
+  denotation:string;                // optional semantic hint (e.g., "N", "C", "H", "W")
+}
+
+table DimensionValue {
+  dim_type:DimensionValueType;      // how this dimension is specified
+  dim_value:long;                    // concrete numeric value when dim_type == VALUE
+  dim_param:string;                  // symbolic name when dim_type == PARAM
+}
+
+table OptionalType {
+  elem_type:TypeInfo;               // element type
+}
+
+table SequenceType {
+  elem_type:TypeInfo;               // element type
+}
+
+table MapType {
+  key_type:TensorDataType;          // key type (enum stored as int32)
+  value_type:TypeInfo;              // value type
+}
+
+// Value info for graph edges with quantization exponent(s)
+table ValueInfo {
+  name:string;                       // value name
+  value_info_type:TypeInfo;          // element type + shape
+  doc_string:string;                 // documentation
+  exponents:[long];                  // power-of-two quantization exponents (PER_TENSOR)
+}
+
+// Top-level model
+table Model {
+  ir_version:int;                    // IR version (int32)
+  opset_import:[OperatorSetId];      // required opsets for this model
+  producer_name:string;              // exporter name
+  producer_version:string;           // exporter version
+  domain:string;                     // model domain
+  model_version:long;                // model version (int64)
+  doc_string:string;                 // documentation
+  graph:Graph;                       // main graph
+  metadata_props:[StringStringEntry]; // free-form metadata key/value pairs
+  functions:[Function];              // optional function library
+}
+
+root_type Model;
+

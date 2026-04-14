@@ -1,0 +1,38 @@
+# Taplo configuration for Cargo.toml formatting
+# https://taplo.tamasfe.dev/configuration/formatter-options.html
+
+[formatting]
+# Align consecutive entries in tables (aligns = signs)
+align_entries = true
+# Align comments
+align_comments = true
+# Allow trailing commas in arrays
+array_trailing_comma = true
+# Keep arrays on one line when they fit
+array_auto_collapse = true
+# Expand arrays when they exceed column_width
+array_auto_expand = true
+# Keep spaces inside inline table braces: { key = "value" }
+compact_inline_tables = false
+# Trailing newline
+trailing_newline = true
+# Reorder keys alphabetically (disabled to preserve author's ordering)
+reorder_keys = false
+# Column width for line wrapping
+column_width = 100
+# Indent with 4 spaces (Rust convention)
+indent_string = "    "
+
+[[rule]]
+# Cargo.toml specific rules - define key ordering
+include = ["**/Cargo.toml"]
+keys = [
+    "package",
+    "lib",
+    "bin",
+    "features",
+    "dependencies",
+    "dev-dependencies",
+    "build-dependencies",
+    "workspace",
+]

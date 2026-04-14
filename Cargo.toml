@@ -1,0 +1,46 @@
+[package]
+name        = "edgedl"
+version     = "0.1.0"
+edition     = "2024"
+license     = "MIT"
+description = "no_std INT8 neural network inference engine for ESP32-S3"
+repository  = "https://github.com/g1ibby/edgedl"
+keywords    = ["neural-network", "inference", "esp32", "no-std", "embedded"]
+categories  = ["embedded", "no-std", "science"]
+
+# This crate is the runtime and targets no_std by default.
+
+[features]
+default = []
+# Enable HALF_EVEN rounding as default when set; otherwise HALF_UP.
+round-half-even = []
+# Enables emitting a compile-time arena layout report from `#[espdl_model]` expansions.
+# Intended for diagnostics; has no runtime impact unless the consuming crate prints it.
+arena-report = []
+# Optional std-only helpers (e.g., legacy espdl reader). Off by default.
+std = []
+# Instrumentation logs for kernels/engine. Auto-selects backend:
+# - no_std -> defmt
+# - std    -> log
+trace = ["dep:defmt", "dep:log"]
+# Enables stack-usage probing on Xtensa by reading the current stack pointer.
+stack-probe = []
+# Enable SIMD routing and kernels for ESP32-S3 (Xtensa). Default off.
+simd-s3 = []
+
+[dependencies]
+microfft = { version = "0.6", default-features = false, features = ["size-1024"] }
+libm     = "0.2"
+defmt    = { version = "1.0", optional = true }
+log      = { version = "0.4", default-features = false, optional = true }
+bitflags = "2"
+
+[workspace]
+resolver = "2"
+members  = ["macros", "xtask"]
+exclude  = ["hil-test", "examples"]
+
+[dev-dependencies]
+edgedl-macros = { path = "macros" }
+env_logger    = { version = "0.11" }
+log           = { version = "0.4" }

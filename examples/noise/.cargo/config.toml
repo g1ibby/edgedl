@@ -1,0 +1,25 @@
+# Default target for ESP32-S3 builds
+# For host examples (like uart_receiver), use: --target aarch64-apple-darwin
+[build]
+target = "xtensa-esp32s3-none-elf"
+
+# ESP32 specific configuration - only applies to Xtensa architecture
+[target.'cfg(target_arch = "xtensa")']
+runner = "espflash flash --monitor"
+rustflags = [
+  "-C", "link-arg=-nostartfiles",
+  "-C", "link-arg=-Tdefmt.x",
+  "-C", "target-feature=+esp32s3",
+]
+
+[env]
+ESP_LOG = "info"
+# Configure PSRAM mode for XIAO ESP32-S3 (has octal PSRAM)
+# Notes:
+# - Xiao ESP32-S3 uses octal PSRAM; keep this in sync with board variant.
+# - Requires espflash installed (cargo install cargo-espflash) and the ESP toolchain
+#   (rustup toolchain install esp). Ensure USB permissions on your OS.
+ESP_HAL_CONFIG_PSRAM_MODE = "octal"
+
+[unstable]
+build-std = ["core", "alloc"]
