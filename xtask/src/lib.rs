@@ -32,6 +32,7 @@ pub mod changelog;
 pub mod commands;
 pub mod firmware;
 pub mod git;
+pub mod probe;
 
 #[derive(
     Debug,

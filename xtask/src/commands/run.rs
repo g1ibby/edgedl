@@ -15,6 +15,9 @@ pub enum Run {
     Example(ExamplesArgs),
     /// Run all applicable tests or the specified test for a specified chip.
     Tests(TestsArgs),
+    /// Run HIL tests end-to-end: flash, capture RTT tensor dumps to a temp
+    /// directory, and run the matching host crosscheck (`tests/<name>_crosscheck.rs`).
+    FullTests(TestsArgs),
 }
 
 // ----------------------------------------------------------------------------

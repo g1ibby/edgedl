@@ -29,6 +29,7 @@ mod tests {
 
     #[init]
     fn init() -> Ctx {
+        hil_test::init_rtt();
         let _p = esp_hal::init(
             esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max()),
         );

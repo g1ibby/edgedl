@@ -9,14 +9,28 @@
 use crate::{
     arena::{Arena, PlannedArena},
     kernels::{
-        conv2d::conv2d_scalar,
-        linear::linear_scalar,
-        pad::pad_scalar,
+        conv2d::conv2d_scalar, linear::linear_scalar, pad::pad_scalar,
         reduce_mean::reduce_mean_scalar,
     },
-    model::{ModelSpec, NodeOp, ValueId},
+    model::{ModelSpec, NodeOp, NodeSpec, ValueId},
     rounding::DEFAULT_ROUNDING,
 };
+
+/// Per-node dump callback. Called after each node's output is written to the
+/// arena, giving a host-side observer a chance to capture intermediate
+/// activations for e.g. SIMD-vs-scalar parity diffs computed on the host.
+///
+/// Feature-gated on `crosscheck`; compiles to nothing when the feature is off.
+#[cfg(feature = "crosscheck")]
+pub trait NodeHook {
+    fn after_node(
+        &mut self,
+        idx: usize,
+        node: &NodeSpec,
+        meta: &crate::model::ValueMeta,
+        output_bytes: &[i8],
+    );
+}
 
 pub struct Engine<'m, 'p, 'a> {
     spec: &'m ModelSpec,
@@ -44,18 +58,37 @@ impl<'m, 'p, 'a> Engine<'m, 'p, 'a> {
     pub fn infer_scalar(&mut self) {
         let round = DEFAULT_ROUNDING;
         for node in self.spec.plan.iter() {
-            match &node.op {
-                NodeOp::Conv2d(conv) => {
-                    conv2d_scalar(self.plan, &mut self.arena, self.spec, conv, round)
-                }
-                NodeOp::Pad(p) => pad_scalar(self.plan, &mut self.arena, self.spec, p),
-                NodeOp::ReduceMean(rm) => {
-                    reduce_mean_scalar(self.plan, &mut self.arena, self.spec, rm, round)
-                }
-                NodeOp::Linear(l) => linear_scalar(self.plan, &mut self.arena, self.spec, l, round),
-                NodeOp::ReLU(r) => {
-                    crate::kernels::relu::relu_scalar(self.plan, &mut self.arena, self.spec, r)
-                }
+            self.exec_scalar(node, round);
+        }
+    }
+
+    /// Same as [`Engine::infer_scalar`] but invokes `hook.after_node(..)` after each node
+    /// completes, passing the node's output bytes.
+    #[cfg(feature = "crosscheck")]
+    pub fn infer_scalar_hooked(&mut self, hook: &mut dyn NodeHook) {
+        let round = DEFAULT_ROUNDING;
+        for (idx, node) in self.spec.plan.iter().enumerate() {
+            self.exec_scalar(node, round);
+            let out_id = node.op.output();
+            let meta = &self.spec.values[out_id as usize];
+            let bytes = self.output_bytes(out_id);
+            hook.after_node(idx, node, meta, bytes);
+        }
+    }
+
+    /// Dispatch a single node through scalar kernels.
+    fn exec_scalar(&mut self, node: &NodeSpec, round: crate::rounding::RoundingMode) {
+        match &node.op {
+            NodeOp::Conv2d(conv) => {
+                conv2d_scalar(self.plan, &mut self.arena, self.spec, conv, round)
+            }
+            NodeOp::Pad(p) => pad_scalar(self.plan, &mut self.arena, self.spec, p),
+            NodeOp::ReduceMean(rm) => {
+                reduce_mean_scalar(self.plan, &mut self.arena, self.spec, rm, round)
+            }
+            NodeOp::Linear(l) => linear_scalar(self.plan, &mut self.arena, self.spec, l, round),
+            NodeOp::ReLU(r) => {
+                crate::kernels::relu::relu_scalar(self.plan, &mut self.arena, self.spec, r)
             }
         }
     }
@@ -65,59 +98,87 @@ impl<'m, 'p, 'a> Engine<'m, 'p, 'a> {
     pub fn infer_simd(&mut self) {
         let round = DEFAULT_ROUNDING;
         for node in self.spec.plan.iter() {
-            match &node.op {
-                NodeOp::Conv2d(conv) => {
-                    // Prefer SIMD on supported targets when the feature is enabled; otherwise
-                    // run the scalar kernel directly.
-                    #[cfg(feature = "trace")]
-                    let _start_cycles = crate::trace::read_ccount();
+            self.exec_simd(node, round);
+        }
+    }
 
-                    #[cfg(all(feature = "simd-s3", target_arch = "xtensa"))]
-                    {
-                        let outcome = crate::kernels::simd::conv2d::try_conv2d(
-                            self.plan,
-                            &mut self.arena,
-                            self.spec,
-                            conv,
-                            round,
-                        );
-                        if matches!(outcome, crate::kernels::simd::conv2d::ExecOutcome::Fallback) {
-                            #[cfg(feature = "trace")]
-                            crate::ne_warn!("Conv2D id={} FALLBACK to scalar", conv.output);
-                            conv2d_scalar(self.plan, &mut self.arena, self.spec, conv, round)
-                        }
-                    }
-                    #[cfg(not(all(feature = "simd-s3", target_arch = "xtensa")))]
-                    {
+    /// Same as [`Engine::infer_simd`] but invokes `hook.after_node(..)` after each node
+    /// completes, passing the node's output bytes.
+    #[cfg(feature = "crosscheck")]
+    pub fn infer_simd_hooked(&mut self, hook: &mut dyn NodeHook) {
+        let round = DEFAULT_ROUNDING;
+        for (idx, node) in self.spec.plan.iter().enumerate() {
+            self.exec_simd(node, round);
+            let out_id = node.op.output();
+            let meta = &self.spec.values[out_id as usize];
+            let bytes = self.output_bytes(out_id);
+            hook.after_node(idx, node, meta, bytes);
+        }
+    }
+
+    /// Dispatch a single node preferring SIMD, falling back to scalar.
+    fn exec_simd(&mut self, node: &NodeSpec, round: crate::rounding::RoundingMode) {
+        match &node.op {
+            NodeOp::Conv2d(conv) => {
+                // Prefer SIMD on supported targets when the feature is enabled; otherwise
+                // run the scalar kernel directly.
+                #[cfg(feature = "trace")]
+                let _start_cycles = crate::trace::read_ccount();
+
+                #[cfg(all(feature = "simd-s3", target_arch = "xtensa"))]
+                {
+                    let outcome = crate::kernels::simd::conv2d::try_conv2d(
+                        self.plan,
+                        &mut self.arena,
+                        self.spec,
+                        conv,
+                        round,
+                    );
+                    if matches!(outcome, crate::kernels::simd::conv2d::ExecOutcome::Fallback) {
+                        #[cfg(feature = "trace")]
+                        crate::ne_warn!("Conv2D id={} FALLBACK to scalar", conv.output);
                         conv2d_scalar(self.plan, &mut self.arena, self.spec, conv, round)
                     }
+                }
+                #[cfg(not(all(feature = "simd-s3", target_arch = "xtensa")))]
+                {
+                    conv2d_scalar(self.plan, &mut self.arena, self.spec, conv, round)
+                }
 
-                    #[cfg(feature = "trace")]
-                    {
-                        let elapsed = crate::trace::read_ccount().wrapping_sub(_start_cycles);
-                        // ESP32-S3 @ 240MHz: 1 cycle = 1/240_000 ms
-                        let us_total = elapsed / 240;
-                        let ms = us_total / 1000;
-                        let us_frac = us_total % 1000;
-                        crate::ne_info!(
-                            "Conv2D id={} total: {}cy ({}.{:03}ms)",
-                            conv.output,
-                            elapsed,
-                            ms,
-                            us_frac
-                        );
-                    }
-                }
-                NodeOp::Pad(p) => pad_scalar(self.plan, &mut self.arena, self.spec, p),
-                NodeOp::ReduceMean(rm) => {
-                    reduce_mean_scalar(self.plan, &mut self.arena, self.spec, rm, round)
-                }
-                NodeOp::Linear(l) => linear_scalar(self.plan, &mut self.arena, self.spec, l, round),
-                NodeOp::ReLU(r) => {
-                    crate::kernels::relu::relu_scalar(self.plan, &mut self.arena, self.spec, r)
+                #[cfg(feature = "trace")]
+                {
+                    let elapsed = crate::trace::read_ccount().wrapping_sub(_start_cycles);
+                    // ESP32-S3 @ 240MHz: 1 cycle = 1/240_000 ms
+                    let us_total = elapsed / 240;
+                    let ms = us_total / 1000;
+                    let us_frac = us_total % 1000;
+                    crate::ne_info!(
+                        "Conv2D id={} total: {}cy ({}.{:03}ms)",
+                        conv.output,
+                        elapsed,
+                        ms,
+                        us_frac
+                    );
                 }
             }
+            NodeOp::Pad(p) => pad_scalar(self.plan, &mut self.arena, self.spec, p),
+            NodeOp::ReduceMean(rm) => {
+                reduce_mean_scalar(self.plan, &mut self.arena, self.spec, rm, round)
+            }
+            NodeOp::Linear(l) => linear_scalar(self.plan, &mut self.arena, self.spec, l, round),
+            NodeOp::ReLU(r) => {
+                crate::kernels::relu::relu_scalar(self.plan, &mut self.arena, self.spec, r)
+            }
         }
+    }
+
+    /// Arena slice for a given value id. Used by the hooked inference paths to
+    /// hand the just-written tensor to the `NodeHook`.
+    #[cfg(feature = "crosscheck")]
+    fn output_bytes(&self, id: ValueId) -> &[i8] {
+        let elems = self.spec.values[id as usize].shape.elements();
+        let off = self.plan.offset_of(id);
+        self.arena.value_slice(off, elems)
     }
 
     /// Write bytes into the arena region for a given input `ValueId`.

@@ -16,11 +16,7 @@ use crate::{
     arena::{Arena, PlannedArena},
     model::{Activation, ModelSpec, ParamExponents, ParamLayout},
     rounding::{
-        RoundingMode,
-        derive_shift_and_scale,
-        requant_i32_to_i8,
-        saturate_i32,
-        shift_round_i32,
+        RoundingMode, derive_shift_and_scale, requant_i32_to_i8, saturate_i32, shift_round_i32,
     },
 };
 

@@ -18,8 +18,7 @@ struct __ModelBind;
 #[path = "../../../tests/golden_inputs.rs"]
 mod golden;
 
-// Scalar kernels on MCU are slow; allow more time for two inferences.
-#[embedded_test::tests(default_timeout = 60, executor = hil_test::Executor::new())]
+#[embedded_test::tests(default_timeout = 120, executor = hil_test::Executor::new())]
 mod tests {
     use super::*;
 
@@ -27,6 +26,7 @@ mod tests {
 
     #[init]
     fn init() -> Ctx {
+        hil_test::init_rtt();
         let _p = esp_hal::init(
             esp_hal::Config::default().with_cpu_clock(esp_hal::clock::CpuClock::max()),
         );
@@ -81,11 +81,25 @@ mod tests {
         input_on.0.copy_from_slice(&golden::GOLDEN_ON_INPUT_I8);
 
         // OFF -> expect class 0
+        #[cfg(feature = "crosscheck")]
+        {
+            let mut hook = hil_test::probe::ProbeHook::new("simd_off");
+            rt.predict_simd_hooked(&input_off.0, &mut probs, &mut hook)
+                .expect("predict simd off");
+        }
+        #[cfg(not(feature = "crosscheck"))]
         rt.predict_simd(&input_off.0, &mut probs)
             .expect("predict off");
         let off_label = argmax(&probs);
 
         // ON -> expect class 1
+        #[cfg(feature = "crosscheck")]
+        {
+            let mut hook = hil_test::probe::ProbeHook::new("simd_on");
+            rt.predict_simd_hooked(&input_on.0, &mut probs, &mut hook)
+                .expect("predict simd on");
+        }
+        #[cfg(not(feature = "crosscheck"))]
         rt.predict_simd(&input_on.0, &mut probs)
             .expect("predict on");
         let on_label = argmax(&probs);

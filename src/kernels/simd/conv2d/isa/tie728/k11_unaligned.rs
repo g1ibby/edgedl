@@ -15,11 +15,7 @@ use crate::{
     },
     model::{Conv2dSpec, ModelSpec, ParamExponents},
     rounding::{
-        RoundingMode,
-        derive_shift_and_scale,
-        requant_i32_to_i8,
-        saturate_i32,
-        shift_round_i32,
+        RoundingMode, derive_shift_and_scale, requant_i32_to_i8, saturate_i32, shift_round_i32,
     },
 };
 

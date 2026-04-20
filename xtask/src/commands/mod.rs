@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
@@ -288,6 +290,164 @@ pub fn tests(workspace: &Path, args: TestsArgs, action: CargoAction) -> Result<(
         bail!("Failed tests: {:#?}", failed);
     }
 
+    Ok(())
+}
+
+/// Run the HIL "full" workflow: build each matching test with crosscheck
+/// enabled, flash + drain RTT tensor frames into a temp dir, then invoke the
+/// matching host crosscheck (`tests/<name>_crosscheck.rs`) if present.
+pub fn full_tests(workspace: &Path, args: TestsArgs) -> Result<()> {
+    let (test_arg, filter) = if let Some(test_arg) = args.test.as_deref() {
+        match test_arg.split_once("::") {
+            Some((test, filter)) => (Some(test.to_string()), Some(filter.to_string())),
+            None => (Some(test_arg.to_string()), None),
+        }
+    } else {
+        (None, None)
+    };
+
+    let package_path = crate::windows_safe_path(&workspace.join("hil-test"));
+    let target = Package::HilTest.target_triple(&args.chip)?;
+
+    let mut tests = crate::firmware::load(&package_path.join("src").join("bin"))?
+        .into_iter()
+        .filter(|t| t.supports_chip(args.chip))
+        .collect::<Vec<_>>();
+    tests.sort_by_key(|a| a.binary_name());
+
+    let selected: Vec<_> = match test_arg.as_deref() {
+        Some(arg) => tests.into_iter().filter(|t| t.matches(Some(arg))).collect(),
+        None => tests,
+    };
+
+    if selected.is_empty() {
+        if test_arg.is_some() {
+            bail!("Test not found or unsupported for the given chip");
+        } else {
+            bail!("No HIL tests found");
+        }
+    }
+
+    let mut failed = Vec::new();
+
+    for test in &selected {
+        log::info!(
+            "full-tests: running '{}' on {}",
+            test.binary_name(),
+            args.chip
+        );
+
+        // `crosscheck` is required for the channel-1 tensor stream the probe
+        // driver drains. Inject it here so plain `run tests` doesn't pull in
+        // the binary RTT channel and garble the terminal.
+        let mut test_with_dump = test.clone();
+        test_with_dump.add_features(["crosscheck"]);
+
+        // Build the test ELF. We use Build(None) so cargo lands the artifact at
+        // the standard path (`target/<triple>/release/<bin>`), which we then
+        // hand to the probe driver.
+        let cmd = crate::generate_build_command(
+            &package_path,
+            args.chip,
+            &target,
+            &test_with_dump,
+            CargoAction::Build(None),
+            false,
+            args.toolchain.as_deref(),
+            args.timings,
+            &[],
+        )?;
+
+        let built = CargoCommandBatcher::build_one_for_cargo(&cmd);
+        println!(
+            "Command: cargo {}",
+            built.command.join(" ").replace("---", "\n    ---")
+        );
+        if let Err(e) = built.run(false) {
+            log::error!("build failed for '{}': {e}", test.binary_name());
+            failed.push(test.binary_name());
+            continue;
+        }
+
+        let elf = workspace
+            .join("target")
+            .join(&target)
+            .join("release")
+            .join(test.binary_name());
+
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+        let dump_dir = std::env::temp_dir().join(format!(
+            "edgedl-dumps-{}-{}",
+            test.binary_name(),
+            ts
+        ));
+
+        if let Err(e) = crate::probe::run(&elf, filter.as_deref(), Some(&dump_dir)) {
+            log::error!("probe driver failed for '{}': {e:?}", test.binary_name());
+            println!("\n==> dump directory (partial): {}\n", dump_dir.display());
+            failed.push(test.binary_name());
+            continue;
+        }
+
+        let crosscheck_file = workspace
+            .join("tests")
+            .join(format!("{}_crosscheck.rs", test.binary_name()));
+
+        if crosscheck_file.exists() {
+            log::info!(
+                "full-tests: running host crosscheck 'tests/{}_crosscheck.rs'",
+                test.binary_name()
+            );
+            if let Err(e) = run_host_crosscheck(workspace, &test.binary_name(), &dump_dir) {
+                log::error!("host crosscheck failed for '{}': {e}", test.binary_name());
+                println!("\n==> dump directory: {}\n", dump_dir.display());
+                failed.push(format!("{}_crosscheck", test.binary_name()));
+                continue;
+            }
+            println!("\n==> dump directory: {}\n", dump_dir.display());
+        } else {
+            println!(
+                "\n==> no sibling host crosscheck at {} — skipping host step",
+                crosscheck_file.display()
+            );
+            println!("==> dump directory: {}\n", dump_dir.display());
+        }
+    }
+
+    if !failed.is_empty() {
+        bail!("Failed HIL steps: {:#?}", failed);
+    }
+
+    Ok(())
+}
+
+/// Invoke `cargo test --test <bin>_crosscheck -- --ignored --nocapture` at the
+/// workspace root with `EDGEDL_DUMP_DIR` set. The crosscheck test is expected
+/// to read the env var and fail if the dump can't be reconciled.
+fn run_host_crosscheck(workspace: &Path, bin_name: &str, dump_dir: &Path) -> Result<()> {
+    let crosscheck_target = format!("{bin_name}_crosscheck");
+
+    let mut cmd = Command::new("cargo");
+    cmd.arg("test")
+        .arg("--release")
+        .arg("--features=std,crosscheck")
+        .arg("--test")
+        .arg(&crosscheck_target)
+        .arg("--")
+        .arg("--ignored")
+        .arg("--nocapture")
+        .current_dir(workspace)
+        .env("EDGEDL_DUMP_DIR", dump_dir);
+
+    log::debug!("running host crosscheck: {cmd:?}");
+
+    let status = cmd.status().context("failed to invoke cargo test")?;
+    if !status.success() {
+        bail!("host crosscheck '{crosscheck_target}' exited with {status}");
+    }
     Ok(())
 }
 

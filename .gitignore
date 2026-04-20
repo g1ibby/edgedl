@@ -2,6 +2,8 @@
 /target/
 examples/noise/target/
 hil-test/target/
+host-diff/target/
+probe-tool/target/
 
 # IDE and editor configuration
 .helix/

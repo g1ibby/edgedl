@@ -123,7 +123,7 @@ pub fn pack_bias_i32_for_qacc(
 #[repr(i32)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum WeightLayout {
-    OHWI            = 0,
+    OHWI = 0,
     BlockedN16HWC16 = 1,
 }
 
@@ -131,7 +131,7 @@ pub enum WeightLayout {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FusedActivation {
     Linear = 0,
-    ReLU   = 1,
+    ReLU = 1,
 }
 
 bitflags::bitflags! {

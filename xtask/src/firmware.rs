@@ -67,6 +67,21 @@ impl Metadata {
         &self.features
     }
 
+    /// Append additional cargo features and re-sort/dedup. Used by the
+    /// `full-tests` driver to inject `crosscheck` without baking it into the
+    /// test bin's `//% FEATURES` metadata.
+    pub fn add_features<I, S>(&mut self, extras: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for f in extras {
+            self.features.push(f.into());
+        }
+        self.features.sort();
+        self.features.dedup();
+    }
+
     /// A list of all env vars to build a given example.
     pub fn env_vars(&self) -> &HashMap<String, String> {
         &self.env_vars

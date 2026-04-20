@@ -265,6 +265,40 @@ pub fn espdl_model(args: TokenStream, input: TokenStream) -> TokenStream {
                 Ok(())
             }
 
+            /// Scalar predict with a per-node dump hook. Available on any
+            /// target when `edgedl/crosscheck` is enabled. The host-side
+            /// crosscheck tool uses this to materialise scalar goldens for comparison.
+            #[cfg(feature = "crosscheck")]
+            pub fn predict_scalar_hooked(
+                &mut self,
+                input: &[i8],
+                probs: &mut [f32],
+                hook: &mut dyn edgedl::engine::NodeHook,
+            ) -> edgedl::error::Result<()> {
+                if #type_ident::SPEC.inputs.is_empty() { return Err(edgedl::error::Error::NoInputs); }
+                if #type_ident::SPEC.outputs.is_empty() { return Err(edgedl::error::Error::NoOutputs); }
+
+                let in_id = #type_ident::SPEC.inputs[0];
+                let in_meta = #type_ident::SPEC.values[in_id as usize];
+                let in_need = in_meta.shape.elements();
+                if input.len() != in_need {
+                    return Err(edgedl::error::Error::InputLenMismatch { expected: in_need, got: input.len() });
+                }
+
+                let out_id = #type_ident::SPEC.outputs[0];
+                let out_meta = #type_ident::SPEC.values[out_id as usize];
+                let out_need = out_meta.shape.elements();
+                if probs.len() != out_need {
+                    return Err(edgedl::error::Error::OutputLenMismatch { expected: out_need, got: probs.len() });
+                }
+
+                self.eng.write_input_index(0, input);
+                self.eng.infer_scalar_hooked(hook);
+                let out_view = self.eng.read_output_id(out_id);
+                edgedl::post::softmax_from_i8(out_view, out_meta.exp, probs);
+                Ok(())
+            }
+
             /// Predict using the SIMD-preferred execution path. Available only
             /// for Xtensa targets; not emitted for host/desktop builds.
             #[cfg(target_arch = "xtensa")]
@@ -288,6 +322,39 @@ pub fn espdl_model(args: TokenStream, input: TokenStream) -> TokenStream {
 
                 self.eng.write_input_index(0, input);
                 self.eng.infer_simd();
+                let out_view = self.eng.read_output_id(out_id);
+                edgedl::post::softmax_from_i8(out_view, out_meta.exp, probs);
+                Ok(())
+            }
+
+            /// SIMD predict with a per-node dump hook. Available only when the
+            /// `crosscheck` feature is enabled on `edgedl`.
+            #[cfg(all(target_arch = "xtensa", feature = "crosscheck"))]
+            pub fn predict_simd_hooked(
+                &mut self,
+                input: &[i8],
+                probs: &mut [f32],
+                hook: &mut dyn edgedl::engine::NodeHook,
+            ) -> edgedl::error::Result<()> {
+                if #type_ident::SPEC.inputs.is_empty() { return Err(edgedl::error::Error::NoInputs); }
+                if #type_ident::SPEC.outputs.is_empty() { return Err(edgedl::error::Error::NoOutputs); }
+
+                let in_id = #type_ident::SPEC.inputs[0];
+                let in_meta = #type_ident::SPEC.values[in_id as usize];
+                let in_need = in_meta.shape.elements();
+                if input.len() != in_need {
+                    return Err(edgedl::error::Error::InputLenMismatch { expected: in_need, got: input.len() });
+                }
+
+                let out_id = #type_ident::SPEC.outputs[0];
+                let out_meta = #type_ident::SPEC.values[out_id as usize];
+                let out_need = out_meta.shape.elements();
+                if probs.len() != out_need {
+                    return Err(edgedl::error::Error::OutputLenMismatch { expected: out_need, got: probs.len() });
+                }
+
+                self.eng.write_input_index(0, input);
+                self.eng.infer_simd_hooked(hook);
                 let out_view = self.eng.read_output_id(out_id);
                 edgedl::post::softmax_from_i8(out_view, out_meta.exp, probs);
                 Ok(())

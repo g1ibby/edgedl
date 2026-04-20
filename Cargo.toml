@@ -27,6 +27,10 @@ trace = ["dep:defmt", "dep:log"]
 stack-probe = []
 # Enable SIMD routing and kernels for ESP32-S3 (Xtensa). Default off.
 simd-s3 = []
+# Enables per-node `NodeHook` callbacks on `Engine::infer_*_hooked`. Off by
+# default — production builds pay zero cost (no trait dispatch, no extra
+# branches in the node loop).
+crosscheck = []
 
 [dependencies]
 microfft = { version = "0.6", default-features = false, features = ["size-1024"] }
@@ -37,7 +41,7 @@ bitflags = "2"
 
 [workspace]
 resolver = "2"
-members  = ["macros", "xtask"]
+members  = ["macros", "xtask", "crosscheck-proto"]
 exclude  = ["hil-test", "examples"]
 
 [dev-dependencies]

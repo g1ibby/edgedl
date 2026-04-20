@@ -1,0 +1,16 @@
+[package]
+name    = "crosscheck-proto"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Shared wire format for tensor-crosscheck RTT frames between hil-test (device) and probe-tool (host)."
+
+[features]
+# By default the crate is no_std + no alloc: header encode/decode, Fletcher-16,
+# op-type constants. Device code uses this subset.
+default = []
+# Enables the streaming `FrameParser` (needs `alloc` for `Vec` and `String`).
+# Host tooling (probe-tool) turns this on.
+alloc = []
+
+[dependencies]

@@ -199,6 +199,30 @@ pub enum NodeOp {
     ReLU(ActivationSpec),
 }
 
+impl NodeOp {
+    /// The `ValueId` this node writes to.
+    pub fn output(&self) -> ValueId {
+        match self {
+            NodeOp::Conv2d(c) => c.output,
+            NodeOp::Pad(p) => p.output,
+            NodeOp::ReduceMean(rm) => rm.output,
+            NodeOp::Linear(l) => l.output,
+            NodeOp::ReLU(r) => r.output,
+        }
+    }
+
+    /// Short op tag — useful for host-side dump filenames.
+    pub fn tag(&self) -> &'static str {
+        match self {
+            NodeOp::Conv2d(_) => "conv2d",
+            NodeOp::Pad(_) => "pad",
+            NodeOp::ReduceMean(_) => "reduce_mean",
+            NodeOp::Linear(_) => "linear",
+            NodeOp::ReLU(_) => "relu",
+        }
+    }
+}
+
 /// Standalone activation spec (currently only ReLU)
 #[derive(Clone, Copy, Debug)]
 pub struct ActivationSpec {

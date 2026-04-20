@@ -169,6 +169,7 @@ fn main() -> Result<()> {
         Cli::Run(run) => match run {
             Run::Example(args) => examples(&workspace, args, CargoAction::Run),
             Run::Tests(args) => tests(&workspace, args, CargoAction::Run),
+            Run::FullTests(args) => full_tests(&workspace, args),
         },
 
         // Release-related subcommands:

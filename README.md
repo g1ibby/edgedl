@@ -45,9 +45,34 @@ cargo install probe-rs-tools
 cd examples/noise
 source ~/export-esp.sh && cargo run --release --features "trace,defmt"
 
-# Run hardware-in-loop tests
+# Run hardware-in-loop tests (fast path: on-device assertions only)
 source ~/export-esp.sh && cargo xtask run tests esp32s3 --test noise_model_integration
 ```
+
+### HIL testing: two modes
+
+The same HIL binary can be driven two ways:
+
+**`run tests`** — fast. Flashes via `probe-rs run`, embedded-test asserts on device, pass/fail propagates through semihosting. Use for CI and smoke tests.
+
+```bash
+source ~/export-esp.sh && cargo xtask run tests esp32s3 --test noise_model_integration
+```
+
+**`run full-tests`** — full-fidelity. Same device test, but xtask also captures every intermediate tensor from RTT channel 1 to a temp directory, then runs the sibling host crosscheck (`tests/<name>_crosscheck.rs`) which re-computes the same inference with scalar kernels on the host and compares byte-by-byte. Use when debugging SIMD kernel divergences.
+
+```bash
+source ~/export-esp.sh && cargo xtask run full-tests esp32s3 --test noise_model_integration
+```
+
+On success xtask prints the dump directory path. On failure (device test, probe driver, or host diff) it prints the path too so you can inspect the frames. Requires `espflash` on PATH.
+
+Adding a host diff for a new HIL test:
+
+1. Create `hil-test/src/bin/<name>.rs` with the device test. Do **not** put `crosscheck` in `//% FEATURES` — `run full-tests` injects it automatically. Leaving it out keeps `run tests` clean (channel 1 stays closed, terminal stays readable).
+2. Create `tests/<name>_crosscheck.rs` as a `#[cfg(feature = "crosscheck")]` + `#[ignore]`'d `#[test]`. Read `EDGEDL_DUMP_DIR`, do whatever analysis the test needs — full host inference via `predict_scalar_hooked`, or just shape/checksum assertions on the dumped files.
+
+If no sibling `_crosscheck.rs` exists, `run full-tests` still flashes and captures the dump, and prints where it went.
 
 ## Supported Operations
 

@@ -22,8 +22,55 @@ unsafe impl defmt::Logger for Logger {
     unsafe fn write(_bytes: &[u8]) {}
 }
 
-#[cfg(feature = "defmt")]
-use defmt_rtt as _;
+#[cfg(feature = "crosscheck")]
+pub mod probe;
+
+/// Initialise RTT (and route `defmt` through it when the `defmt` feature is on).
+///
+/// Must be called once near the start of every test binary's `#[init]` — before any
+/// `defmt::*` or `probe::dump` call. Safe to omit when neither `defmt` nor `crosscheck`
+/// is enabled (this function is a no-op in that case).
+#[cfg(all(feature = "defmt", not(feature = "crosscheck")))]
+pub fn init_rtt() {
+    let channels = rtt_target::rtt_init! {
+        up: {
+            0: {
+                size: 1024,
+                mode: rtt_target::ChannelMode::NoBlockSkip,
+                name: "defmt"
+            }
+        }
+    };
+    rtt_target::set_defmt_channel(channels.up.0);
+}
+
+#[cfg(feature = "crosscheck")]
+pub fn init_rtt() {
+    // Channel 1 is `BlockIfFull` so multi-kB tensor writes never tear; HIL tests always
+    // run under probe-rs which drains promptly.
+    let channels = rtt_target::rtt_init! {
+        up: {
+            0: {
+                size: 1024,
+                mode: rtt_target::ChannelMode::NoBlockSkip,
+                name: "defmt"
+            }
+            1: {
+                size: 4096,
+                mode: rtt_target::ChannelMode::BlockIfFull,
+                name: "tensors"
+            }
+        }
+    };
+    #[cfg(feature = "defmt")]
+    rtt_target::set_defmt_channel(channels.up.0);
+    #[cfg(not(feature = "defmt"))]
+    let _ = channels.up.0;
+    crate::probe::set_channel(channels.up.1);
+}
+
+#[cfg(not(any(feature = "defmt", feature = "crosscheck")))]
+pub fn init_rtt() {}
 
 #[cfg(feature = "defmt")]
 #[macro_export]
