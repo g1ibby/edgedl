@@ -63,68 +63,87 @@ pub fn build_name_maps(graph: dl::Graph) -> (BTreeMap<String, u16>, Vec<String>)
     (name_to_id, name_by_id)
 }
 
-/// Seed value metadata (NHWC + exp) from value_info tables.
+/// Seed value metadata (NHWC + exp) from graph input/output/value_info tables.
 pub fn seed_val_meta_from_value_info(
     graph: dl::Graph,
 ) -> Result<BTreeMap<String, ValMeta>, String> {
     let mut val_meta_map: BTreeMap<String, ValMeta> = BTreeMap::new();
+    if let Some(v) = graph.input() {
+        for i in 0..v.len() {
+            seed_val_meta(v.get(i), &mut val_meta_map)?;
+        }
+    }
+    if let Some(v) = graph.output() {
+        for i in 0..v.len() {
+            seed_val_meta(v.get(i), &mut val_meta_map)?;
+        }
+    }
     if let Some(v) = graph.value_info() {
         for i in 0..v.len() {
-            let vi = v.get(i);
-            if let Some(name) = vi.name() {
-                let mut dims_i64: Vec<i64> = Vec::new();
-                if let Some(tp) = vi.value_info_type() {
-                    if let Some(tensor) = tp.value_as_tensor_type() {
-                        if let Some(shape) = tensor.shape() {
-                            if let Some(dims) = shape.dim() {
-                                for d in 0..dims.len() {
-                                    let dd = dims.get(d);
-                                    if let Some(val) = dd.value() {
-                                        dims_i64.push(val.dim_value());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                let (n, h, w, c) = match dims_i64.len() {
-                    4 => (
-                        i64_to_u16_checked(dims_i64[0], "N")?,
-                        i64_to_u16_checked(dims_i64[1], "H")?,
-                        i64_to_u16_checked(dims_i64[2], "W")?,
-                        i64_to_u16_checked(dims_i64[3], "C")?,
-                    ),
-                    3 => (
-                        1,
-                        i64_to_u16_checked(dims_i64[0], "H")?,
-                        i64_to_u16_checked(dims_i64[1], "W")?,
-                        i64_to_u16_checked(dims_i64[2], "C")?,
-                    ),
-                    2 => (
-                        // Expand [N, C] to NHWC as [N, 1, 1, C]
-                        i64_to_u16_checked(dims_i64[0], "N")?,
-                        1,
-                        1,
-                        i64_to_u16_checked(dims_i64[1], "C")?,
-                    ),
-                    1 => (
-                        // Expand [C] to NHWC as [1, 1, 1, C]
-                        1,
-                        1,
-                        1,
-                        i64_to_u16_checked(dims_i64[0], "C")?,
-                    ),
-                    _ => (1, 0, 0, 0),
-                };
-                let mut exp: Option<i8> = None;
-                if let Some(exps) = vi.exponents() {
-                    if !exps.is_empty() {
-                        exp = Some(i64_to_i8_checked(exps.get(0))?);
-                    }
-                }
-                val_meta_map.insert(name.to_string(), ValMeta { n, h, w, c, exp });
-            }
+            seed_val_meta(v.get(i), &mut val_meta_map)?;
         }
     }
     Ok(val_meta_map)
+}
+
+fn seed_val_meta(
+    vi: dl::ValueInfo,
+    val_meta_map: &mut BTreeMap<String, ValMeta>,
+) -> Result<(), String> {
+    let Some(name) = vi.name() else {
+        return Ok(());
+    };
+
+    let mut dims_i64: Vec<i64> = Vec::new();
+    if let Some(tp) = vi.value_info_type() {
+        if let Some(tensor) = tp.value_as_tensor_type() {
+            if let Some(shape) = tensor.shape() {
+                if let Some(dims) = shape.dim() {
+                    for d in 0..dims.len() {
+                        let dd = dims.get(d);
+                        if let Some(val) = dd.value() {
+                            dims_i64.push(val.dim_value());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let (n, h, w, c) = match dims_i64.len() {
+        4 => (
+            i64_to_u16_checked(dims_i64[0], "N")?,
+            i64_to_u16_checked(dims_i64[1], "H")?,
+            i64_to_u16_checked(dims_i64[2], "W")?,
+            i64_to_u16_checked(dims_i64[3], "C")?,
+        ),
+        3 => (
+            1,
+            i64_to_u16_checked(dims_i64[0], "H")?,
+            i64_to_u16_checked(dims_i64[1], "W")?,
+            i64_to_u16_checked(dims_i64[2], "C")?,
+        ),
+        2 => (
+            // Expand [N, C] to NHWC as [N, 1, 1, C]
+            i64_to_u16_checked(dims_i64[0], "N")?,
+            1,
+            1,
+            i64_to_u16_checked(dims_i64[1], "C")?,
+        ),
+        1 => (
+            // Expand [C] to NHWC as [1, 1, 1, C]
+            1,
+            1,
+            1,
+            i64_to_u16_checked(dims_i64[0], "C")?,
+        ),
+        _ => (1, 0, 0, 0),
+    };
+    let mut exp: Option<i8> = None;
+    if let Some(exps) = vi.exponents() {
+        if !exps.is_empty() {
+            exp = Some(i64_to_i8_checked(exps.get(0))?);
+        }
+    }
+    val_meta_map.insert(name.to_string(), ValMeta { n, h, w, c, exp });
+    Ok(())
 }

@@ -6,7 +6,7 @@ use quote::quote;
 use crate::{context::ValMeta, dl_generated::dl, util::i64_to_u16_checked};
 
 /// Build `values` array tokens and input/output id arrays. Complements `val_meta_map`
-/// by inferring shapes from initializer dims when missing in value_info.
+/// by inferring shapes from initializer dims when missing in graph metadata.
 pub fn emit_values_and_io(
     fb_graph: dl::Graph,
     name_to_id: &BTreeMap<String, u16>,
@@ -17,7 +17,8 @@ pub fn emit_values_and_io(
     let mut values_tokens: Vec<proc_macro2::TokenStream> = Vec::with_capacity(name_by_id.len());
 
     for name in name_by_id.iter() {
-        // Seed from val_meta_map (from value_info), then patch missing shape from initializer.
+        // Seed from val_meta_map (from graph input/output/value_info), then patch missing
+        // shape from initializer.
         let mut n: u16 = 1;
         let mut h: u16 = 0;
         let mut w: u16 = 0;
@@ -121,7 +122,7 @@ pub fn emit_values_and_io(
         // abort with a clear diagnostic rather than emitting zeros that could mislead the engine.
         if h == 0 || w == 0 || c == 0 {
             abort_call_site!(
-                "missing NHWC shape for value '{}': not in value_info as 4D/3D/2D/1D and no initializer dims found",
+                "missing NHWC shape for value '{}': not in graph input/output/value_info as 4D/3D/2D/1D and no initializer dims found",
                 name
             );
         }
